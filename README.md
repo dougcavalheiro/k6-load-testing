@@ -17,7 +17,7 @@ Inside all scripts must be stored into **scripts** dir
 ### Grafana Dashboard
 
 Both docker-compose files contain Influxdb and Grafana to integrate with K6 tests in real time.
-To check how the tests are going just access [THIS PAGE]( http://localhost:3000/d/k6/k6-load-testing-results) into your local machine
+To check how the tests are going just access [this]( http://localhost:3000/d/k6/k6-load-testing-results) into your local machine after running any script
 
 ### Local tests
 

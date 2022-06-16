@@ -1,0 +1,219 @@
+version: "3.3"
+
+services:
+  k6:
+    image: grafana/k6
+    networks:
+      - services
+      - k6
+    ## command: run /scripts/connection.js
+    ports:
+      - 6565:6565
+    environment:
+      - K6_OUT=influxdb=http://influxdb:8086/k6
+    volumes:
+      - ./scripts:/scripts
+    depends_on:
+      - livecomments-service
+
+  influxdb:
+    image: influxdb:1.8
+    networks:
+      - k6
+      - grafana
+    ports:
+      - 8086:8086
+    environment:
+      - INFLUXDB_DB=k6
+
+  grafana:
+    image: grafana/grafana:latest
+    networks:
+      - grafana
+    ports:
+      - 3000:3000
+    environment:
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_BASIC_ENABLED=false
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/grafana-dashboard.yaml:/etc/grafana/provisioning/dashboards/dashboard.yaml
+      - ./grafana/grafana-datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml
+
+  mysql:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/mysql-all:latest
+    networks:
+    - services
+    logging:
+      driver: none
+    ports:
+    - 3306:3306
+
+  zookeeper:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/zookeeper:latest
+    networks:
+    - services
+#    logging:
+#      driver: none
+    ports:
+    - 2181:2181
+
+  kafka:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/kafka:latest
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: INSIDE://:9092,OUTSIDE://localhost:9094
+      KAFKA_LISTENERS: INSIDE://:9092,OUTSIDE://:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
+      KAFKA_CREATE_TOPICS: "public-content-actions:1:1,mediation-requests:1:1,mediation-acknowledgements:1:1,moderation-assessments:1:1,user-actions:1:1"
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+    - services
+#    logging:
+#      driver: none
+    ports:
+    - 9092:9092
+    - 9094:9094
+    depends_on:
+    - zookeeper
+
+  gdpr-mediation-service:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/gdpr-mediation-service:0.1.7-753c6e3
+    networks:
+    - services
+    logging:
+      driver: none
+    ports:
+    - 8093:80
+    depends_on:
+    - kafka
+    - zookeeper
+    - mysql
+
+  akismet:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/mock-akismet-server:latest
+    networks:
+      services:
+        aliases:
+        - akismet
+        - secret.akismet
+#    logging:
+#      driver: none
+
+  akismet-moderation:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/akismet-moderation:1.0.71-3e68a16
+    networks:
+    - services
+    depends_on:
+    - heimdall
+    - tyrion
+    - kafka
+    - zookeeper
+    - akismet
+#    logging:
+#      driver: none
+
+  keepcon:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/mock-keepcon-server:latest
+    networks:
+    - services
+#    logging:
+#      driver: none
+
+  keepcon-moderation:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/keepcon-moderation:1.0.71-3e68a16
+    networks:
+    - services
+    depends_on:
+    - heimdall
+    - tyrion
+    - keepcon
+    - kafka
+    - zookeeper
+#    logging:
+#      driver: none
+
+  ucs-moderation:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/ucs-moderation:1.0.71-3e68a16
+    networks:
+    - services
+    depends_on:
+    - heimdall
+    - tyrion
+    - kafka
+    - zookeeper
+#    logging:
+#      driver: none
+
+  php:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/mock-user-server:latest
+    networks:
+    - services
+
+  tyrion:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/tyrion:2.1.14-bd330a5
+    networks:
+    - services
+    ports:
+    - 8089:80
+    depends_on:
+    - mysql
+#    logging:
+#      driver: none
+
+  heimdall:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/mock-heimdall-server:latest
+    networks:
+    - services
+
+  local-aws:
+    environment:
+      initialBuckets: origin-media.vf-dev2.net
+    image: adobe/s3mock:latest
+    networks:
+      services:
+        aliases:
+        - local-cloudfront
+    ports:
+    - 9090:9090
+    - 9091:9091
+    logging:
+      driver: none
+
+  subscription-chief:
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/subscription-chief:pr33
+    networks:
+    - services
+    ports:
+    - 8082:80
+    depends_on:
+    - zookeeper
+    - kafka
+    logging:
+      driver: none
+
+  livecomments-service:
+    environment: ### set these when using local-aws only, otherwise the aws sdk is slow
+      - AWS_ACCESS_KEY_ID=GARBAGE
+      - AWS_SECRET_ACCESS_KEY=GARBAGE
+    image: 218894879100.dkr.ecr.us-east-1.amazonaws.com/livecomments-service:v3.5.88
+    ports:
+      - 8085:80
+      - 5005:5005
+    networks:
+      - services
+    depends_on:
+      - local-aws
+      - kafka
+      - mysql
+      - tyrion
+      - heimdall
+
+networks:
+  services:
+  k6:
+  grafana:

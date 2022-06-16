@@ -35,6 +35,8 @@ Then, run k6 into another terminal
 
 ### Remote
 
+The remote execution allows you to run the scripts onto external endpoints such as our lower environments.
+
 First, start the influxdb and grafana
 ```
 docker-compose -f docker-compose.remote.yaml up influxdb grafana
